@@ -33,13 +33,19 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -Eeuo pipefail
-          test -n "$PRIVATE_REPO_TOKEN"
-          test -n "$PRIVATE_15M_REPOSITORY"
-          test -n "$PRIVATE_4H_REPOSITORY"
-          test -n "$TELEGRAM_BOT_TOKEN"
-          test -n "$TELEGRAM_CHAT_ID"
+          missing=()
+          [[ -n "$PRIVATE_REPO_TOKEN" ]] || missing+=(PRIVATE_REPO_TOKEN)
+          [[ -n "$PRIVATE_15M_REPOSITORY" ]] || missing+=(PRIVATE_15M_REPOSITORY)
+          [[ -n "$PRIVATE_4H_REPOSITORY" ]] || missing+=(PRIVATE_4H_REPOSITORY)
+          [[ -n "$TELEGRAM_BOT_TOKEN" ]] || missing+=(TELEGRAM_BOT_TOKEN)
+          [[ -n "$TELEGRAM_CHAT_ID" ]] || missing+=(TELEGRAM_CHAT_ID)
+          if (( ${#missing[@]} )); then
+            printf '::error::Missing Actions secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
 
       - name: Check out public runner
+        id: checkout_public
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: public-runner
@@ -47,6 +53,7 @@ jobs:
           persist-credentials: true
 
       - name: Check out private 15m strategy
+        id: checkout_15m
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: ${{ secrets.PRIVATE_15M_REPOSITORY }}
@@ -57,6 +64,7 @@ jobs:
           persist-credentials: false
 
       - name: Check out private 4h strategy
+        id: checkout_4h
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: ${{ secrets.PRIVATE_4H_REPOSITORY }}
@@ -112,7 +120,7 @@ jobs:
 
       - name: Persist 15m paper state
         id: persist_15m
-        if: ${{ always() }}
+        if: ${{ always() && steps.checkout_15m.outcome == 'success' }}
         continue-on-error: true
         working-directory: private/15m
         shell: bash
@@ -162,7 +170,7 @@ jobs:
 
       - name: Persist 4h paper state
         id: persist_4h
-        if: ${{ always() }}
+        if: ${{ always() && steps.checkout_4h.outcome == 'success' }}
         continue-on-error: true
         working-directory: private/4h
         shell: bash
@@ -189,7 +197,7 @@ jobs:
           exit 1
 
       - name: Keep the public schedule active
-        if: ${{ always() }}
+        if: ${{ always() && steps.checkout_public.outcome == 'success' }}
         continue-on-error: true
         working-directory: public-runner
         shell: bash
