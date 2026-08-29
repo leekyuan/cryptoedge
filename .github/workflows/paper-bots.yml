@@ -1,0 +1,259 @@
+name: Free private paper bots runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/paper-bots.yml"
+  schedule:
+    # Offset from quarter-hour boundaries to reduce GitHub scheduler congestion.
+    - cron: "6,21,36,51 * * * *"
+  workflow_dispatch:
+
+# Write is used only for a once-daily, non-sensitive public heartbeat commit.
+permissions:
+  contents: write
+
+concurrency:
+  group: private-paper-bots-runtime
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          PRIVATE_15M_REPOSITORY: ${{ secrets.PRIVATE_15M_REPOSITORY }}
+          PRIVATE_4H_REPOSITORY: ${{ secrets.PRIVATE_4H_REPOSITORY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$PRIVATE_REPO_TOKEN"
+          test -n "$PRIVATE_15M_REPOSITORY"
+          test -n "$PRIVATE_4H_REPOSITORY"
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+
+      - name: Check out public runner
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          path: public-runner
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Check out private 15m strategy
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ secrets.PRIVATE_15M_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: private/15m
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out private 4h strategy
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: ${{ secrets.PRIVATE_4H_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: private/4h
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime dependency
+        run: pip install --disable-pip-version-check --quiet numpy
+
+      - name: Select daily market cache key
+        id: cache-date
+        shell: bash
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore 15m market cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: private/15m/logs/h_ote2_market_cache
+          key: hote2-market-${{ steps.cache-date.outputs.date }}
+          restore-keys: |
+            hote2-market-
+
+      - name: Run 15m paper monitor
+        id: monitor_15m
+        continue-on-error: true
+        working-directory: private/15m
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HOTE2_FETCH_WORKERS: "4"
+        run: |
+          set +e
+          ./scripts/run_monitor_once.sh > "$RUNNER_TEMP/15m-monitor.log" 2>&1
+          status=$?
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            cp "$RUNNER_TEMP/15m-monitor.log" logs/public_runner_last_failure.log
+            echo "15m monitor failed; details were saved only to the private repository."
+          else
+            rm -f logs/public_runner_last_failure.log
+            echo "15m monitor completed; detailed output remains private."
+          fi
+          exit "$status"
+
+      - name: Persist 15m paper state
+        id: persist_15m
+        if: ${{ always() }}
+        continue-on-error: true
+        working-directory: private/15m
+        shell: bash
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          git add -A logs/
+          if git diff --cached --quiet; then
+            echo "No 15m state changes."
+            exit 0
+          fi
+          git config user.name "free-bot-runtime[bot]"
+          git config user.email "free-bot-runtime@users.noreply.github.com"
+          git commit -m "obs: record 15m paper state [skip ci]"
+          auth_header="$(printf 'x-access-token:%s' "$PRIVATE_REPO_TOKEN" | base64 -w0)"
+          for attempt in 1 2 3; do
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
+              pull --rebase origin main
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
+              push origin HEAD:main && exit 0
+            sleep "$((attempt * 2))"
+          done
+          exit 1
+
+      - name: Run 4h paper monitor when due
+        id: monitor_4h
+        continue-on-error: true
+        working-directory: private/4h
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set +e
+          ./futures_trend_bot/run_signal_if_due.sh > "$RUNNER_TEMP/4h-monitor.log" 2>&1
+          status=$?
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            cp "$RUNNER_TEMP/4h-monitor.log" signals/public_runner_last_failure.log
+            echo "4h monitor failed; details were saved only to the private repository."
+          else
+            rm -f signals/public_runner_last_failure.log
+            echo "4h monitor check completed; detailed output remains private."
+          fi
+          exit "$status"
+
+      - name: Persist 4h paper state
+        id: persist_4h
+        if: ${{ always() }}
+        continue-on-error: true
+        working-directory: private/4h
+        shell: bash
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          git add -A signals/
+          if git diff --cached --quiet; then
+            echo "No 4h state changes."
+            exit 0
+          fi
+          git config user.name "free-bot-runtime[bot]"
+          git config user.email "free-bot-runtime@users.noreply.github.com"
+          git commit -m "obs: record 4h paper state [skip ci]"
+          auth_header="$(printf 'x-access-token:%s' "$PRIVATE_REPO_TOKEN" | base64 -w0)"
+          for attempt in 1 2 3; do
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
+              pull --rebase origin main
+            git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth_header" \
+              push origin HEAD:main && exit 0
+            sleep "$((attempt * 2))"
+          done
+          exit 1
+
+      - name: Keep the public schedule active
+        if: ${{ always() }}
+        continue-on-error: true
+        working-directory: public-runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          today="$(date -u +%F)"
+          if [[ -f runtime/heartbeat.json ]] \
+            && grep -Fq "\"date_utc\": \"$today\"" runtime/heartbeat.json; then
+            echo "Daily public heartbeat already recorded."
+            exit 0
+          fi
+          mkdir -p runtime
+          timestamp="$(date -u +%FT%TZ)"
+          cat > runtime/heartbeat.json <<EOF
+          {
+            "date_utc": "$today",
+            "updated_at_utc": "$timestamp"
+          }
+          EOF
+          git config user.name "free-bot-runtime[bot]"
+          git config user.email "free-bot-runtime@users.noreply.github.com"
+          git add runtime/heartbeat.json
+          git commit -m "chore: keep scheduled runner active [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Fail when either private monitor failed
+        if: ${{ steps.monitor_15m.outcome == 'failure' || steps.persist_15m.outcome == 'failure' || steps.monitor_4h.outcome == 'failure' || steps.persist_4h.outcome == 'failure' }}
+        run: exit 1
+
+      - name: Notify Telegram on runtime failure
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+          if not token or not chat_id:
+              raise SystemExit(0)
+          url = (
+              f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
+              f"{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/"
+              f"{os.environ.get('GITHUB_RUN_ID', '')}"
+          )
+          payload = urllib.parse.urlencode({
+              "chat_id": chat_id,
+              "text": "🚨 무료 봇 러너 실행 실패\n다음 15분 주기에 자동 재시도합니다.\n" + url,
+          }).encode()
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              result = json.loads(response.read().decode("utf-8"))
+          if result.get("ok") is not True:
+              raise RuntimeError(result.get("description", "Telegram rejected message"))
+          PY
