@@ -15,7 +15,8 @@ Add these under **Settings → Secrets and variables → Actions**:
   private strategy repositories, with **Contents: Read and write** only.
 - `PRIVATE_15M_REPOSITORY`: full name of the private 15-minute repository.
 - `PRIVATE_4H_REPOSITORY`: full name of the private 4-hour repository.
-- `TELEGRAM_BOT_TOKEN`: token for the existing Telegram alert bot.
+- `TELEGRAM_15M_BOT_TOKEN`: token for the existing 15-minute Telegram bot.
+- `TELEGRAM_4H_BOT_TOKEN`: token for the existing 4-hour Telegram bot.
 - `TELEGRAM_CHAT_ID`: destination chat ID used by the existing bot.
 
 Do not store these values in repository files or Actions variables.
