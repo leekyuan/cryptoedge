@@ -29,7 +29,8 @@ jobs:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           PRIVATE_15M_REPOSITORY: ${{ secrets.PRIVATE_15M_REPOSITORY }}
           PRIVATE_4H_REPOSITORY: ${{ secrets.PRIVATE_4H_REPOSITORY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_15M_BOT_TOKEN: ${{ secrets.TELEGRAM_15M_BOT_TOKEN }}
+          TELEGRAM_4H_BOT_TOKEN: ${{ secrets.TELEGRAM_4H_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -Eeuo pipefail
@@ -37,7 +38,8 @@ jobs:
           [[ -n "$PRIVATE_REPO_TOKEN" ]] || missing+=(PRIVATE_REPO_TOKEN)
           [[ -n "$PRIVATE_15M_REPOSITORY" ]] || missing+=(PRIVATE_15M_REPOSITORY)
           [[ -n "$PRIVATE_4H_REPOSITORY" ]] || missing+=(PRIVATE_4H_REPOSITORY)
-          [[ -n "$TELEGRAM_BOT_TOKEN" ]] || missing+=(TELEGRAM_BOT_TOKEN)
+          [[ -n "$TELEGRAM_15M_BOT_TOKEN" ]] || missing+=(TELEGRAM_15M_BOT_TOKEN)
+          [[ -n "$TELEGRAM_4H_BOT_TOKEN" ]] || missing+=(TELEGRAM_4H_BOT_TOKEN)
           [[ -n "$TELEGRAM_CHAT_ID" ]] || missing+=(TELEGRAM_CHAT_ID)
           if (( ${#missing[@]} )); then
             printf '::error::Missing Actions secrets: %s\n' "${missing[*]}"
@@ -101,7 +103,7 @@ jobs:
         working-directory: private/15m
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_15M_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           HOTE2_FETCH_WORKERS: "4"
         run: |
@@ -152,7 +154,7 @@ jobs:
         working-directory: private/4h
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_4H_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set +e
@@ -233,7 +235,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_15M_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python - <<'PY'
