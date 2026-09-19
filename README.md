@@ -1,29 +1,26 @@
-# Private Paper Bots Runtime
+# Private Paper Bots Scheduler
 
-This public repository contains only the free GitHub Actions scheduler for two
-private, paper-only monitoring systems.
+This public repository contains only a free GitHub Actions scheduler. It calls
+the workflows in two private, paper-only strategy repositories. No strategy
+source, parameters, signal history, position state, Telegram token, or chat ID
+is copied into this public repository.
 
-The strategy source, parameters, position state, signal history, and failure
-details stay in the private repositories. The public workflow does not place
-exchange orders and never enables live trading.
+## One required Actions secret
 
-## Required Actions secrets
+Under **Settings → Secrets and variables → Actions**, add:
 
-Add these under **Settings → Secrets and variables → Actions**:
+- `PRIVATE_REPO_TOKEN`: a fine-grained personal access token limited to
+  `leekyuan/btc-15-min-ote-strategy` and `leekyuan/btc-4h-signal-bot`, with
+  **Actions: Read and write** and **Metadata: Read-only** permissions.
 
-- `PRIVATE_REPO_TOKEN`: fine-grained personal access token limited to the two
-  private strategy repositories, with **Contents: Read and write** only.
-- `PRIVATE_15M_REPOSITORY`: full name of the private 15-minute repository.
-- `PRIVATE_4H_REPOSITORY`: full name of the private 4-hour repository.
-- `TELEGRAM_15M_BOT_TOKEN`: token for the existing 15-minute Telegram bot.
-- `TELEGRAM_4H_BOT_TOKEN`: token for the existing 4-hour Telegram bot.
-- `TELEGRAM_CHAT_ID`: destination chat ID used by the existing bot.
-
-Do not store these values in repository files or Actions variables.
+The private workflows continue to use their own existing Telegram secrets and
+their own repository-scoped `GITHUB_TOKEN` when saving paper state.
 
 ## Schedule
 
-The runner starts at minutes `06`, `21`, `36`, and `51` every hour. The 15-minute
-monitor catches up missed closed candles. The 4-hour monitor runs only when a new
-4-hour cycle is due. A daily public heartbeat commit prevents GitHub from
-automatically disabling an inactive scheduled workflow.
+The public scheduler runs at minutes `06`, `21`, `36`, and `51` each
+hour. It dispatches the private 15-minute monitor every run and the private
+4-hour monitor, which exits without an alert when no new 4-hour close is due.
+A daily public heartbeat commit prevents inactivity-based schedule disabling.
+
+Actual exchange orders remain disabled.
